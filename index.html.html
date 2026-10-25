@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorized Tags — Inspection</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#182334;background:#f4f6f9}
+*{box-sizing:border-box}body{margin:0;padding:22px}.app{max-width:960px;margin:auto}h1{font-size:clamp(25px,4vw,35px);margin:0 0 8px}p{color:#526174}.panel{background:white;border:1px solid #dce2eb;border-radius:14px;padding:20px;margin:16px 0}input[type=file]{max-width:100%;font-size:16px}label{display:block;font-weight:650;margin-bottom:10px}.summary{display:flex;flex-wrap:wrap;gap:22px;font-size:16px}.summary strong{display:block;font-size:20px;margin-top:3px}.muted{color:#627084}.tags{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.tag{padding:14px 16px;border:1px solid #d9e0e9;border-radius:9px;background:#f8fafc;font-size:20px;font-weight:650;overflow-wrap:anywhere}.tag{width:100%;text-align:left;cursor:pointer;color:#182334;font-family:inherit}.tag:focus-visible{outline:3px solid #2563eb;outline-offset:2px}.tag.found{background:#dce9df;color:#476451;border-color:#a8c3ae;text-decoration:line-through;opacity:.72}.message{margin-top:12px;color:#7d2634}.hidden{display:none}@media(max-width:500px){body{padding:12px}.panel{padding:15px}.tag{font-size:17px;padding:12px}}
+</style>
+</head>
+<body><main class="app">
+<h1>Authorized Tags</h1>
+<p>Guest parking inspection — tag checklist</p>
+<section class="panel"><label for="file">Choose AuthorizedTags.csv</label><input id="file" type="file" accept=".csv,text/csv,text/plain"><div id="message" class="message" role="status"></div></section>
+<section id="result" class="hidden"><div class="panel summary"><div><span class="muted">Generated date</span><strong id="date"></strong></div><div><span class="muted">Generated time</span><strong id="time"></strong></div><div><span class="muted">Authorized tags</span><strong id="count"></strong></div><div><span class="muted">Found</span><strong id="found">0</strong></div></div><section class="panel"><p class="muted">Click a tag to mark it found. Click again to undo.</p><div id="tags" class="tags"></div></section></section>
+</main>
+<script>
+'use strict';
+function parseCSV(source){
+ const rows=[];let row=[],cell='',quoted=false;
+ source=source.replace(/^\uFEFF/,'');
+ for(let i=0;i<source.length;i++){
+  const c=source[i];
+  if(quoted){if(c==='"'&&source[i+1]==='"'){cell+='"';i++;}else if(c==='"'){quoted=false;}else{cell+=c;}}
+  else if(c==='"'&&cell===''){quoted=true;}
+  else if(c===','){row.push(cell);cell='';}
+  else if(c==='\n'||c==='\r'){if(c==='\r'&&source[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()!==''))rows.push(row);row=[];cell='';}
+  else{cell+=c;}
+ }
+ if(quoted)throw new Error('The CSV contains an unclosed quotation mark.');
+ row.push(cell);if(row.some(v=>v.trim()!==''))rows.push(row);
+ return rows;
+}
+const fileInput=document.getElementById('file'),message=document.getElementById('message'),result=document.getElementById('result');
+const storageKey='wt500-authorized-tags-inspection-v1';
+let current=null;
+function persist(){
+ try{localStorage.setItem(storageKey,JSON.stringify(current));return true;}
+ catch(err){message.textContent='Browser storage is unavailable. Keep this page open during inspection.';return false;}
+}
+function display(data){
+ current=data;
+ document.getElementById('date').textContent=data.date||'—';
+ document.getElementById('time').textContent=data.time||'—';
+ document.getElementById('count').textContent=String(data.tags.length);
+ const list=document.getElementById('tags');list.replaceChildren();
+ const foundCount=document.getElementById('found');
+ const updateCount=()=>{foundCount.textContent=String(data.found.filter(Boolean).length);};
+ data.tags.forEach((tag,index)=>{
+  const button=document.createElement('button');button.type='button';button.className='tag';button.textContent=tag;
+  function update(){button.classList.toggle('found',Boolean(data.found[index]));button.setAttribute('aria-pressed',String(Boolean(data.found[index])));}
+  update();
+  button.addEventListener('click',()=>{data.found[index]=!data.found[index];update();updateCount();persist();});
+  list.append(button);
+ });
+ if(data.tags.length===0){const div=document.createElement('div');div.textContent='No authorized tags in this file.';list.append(div);}
+ updateCount();result.classList.remove('hidden');
+}
+try{
+ const saved=localStorage.getItem(storageKey);
+ if(saved){const data=JSON.parse(saved);
+  if(data&&Array.isArray(data.tags)&&Array.isArray(data.found)&&data.tags.length===data.found.length)display(data);
+ }
+}catch(err){message.textContent='Previously saved inspection data could not be restored.';}
+
+fileInput.addEventListener('change',async()=>{
+ message.textContent='';
+ const file=fileInput.files?.[0];if(!file)return;
+ try{
+  const rows=parseCSV(await file.text());
+  if(rows.length===0)throw new Error('The CSV is empty.');
+  const headers=rows[0].map(v=>v.trim().toLowerCase());
+  const d=headers.indexOf('date'),t=headers.indexOf('time'),a=headers.indexOf('tag');
+  if(d<0||t<0||a<0)throw new Error('Expected CSV columns: Date, Time, Tag.');
+  const entries=rows.slice(1).filter(r=>(r[a]||'').trim()!=='');
+  const tags=entries.map(r=>r[a].trim()).sort((x,y)=>x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'}));
+  const data={date:entries[0]?.[d]?.trim()||'',time:entries[0]?.[t]?.trim()||'',tags,found:tags.map(()=>false)};
+  display(data);
+  persist();
+ }catch(err){message.textContent=err.message||'Unable to read the CSV.';}
+});
+</script>
+</body></html>
