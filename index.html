@@ -6,14 +6,22 @@
 <title>Authorized Tags — Inspection</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#182334;background:#f4f6f9}
-*{box-sizing:border-box}body{margin:0;padding:22px}.app{max-width:960px;margin:auto}h1{font-size:clamp(25px,4vw,35px);margin:0 0 8px}p{color:#526174}.panel{background:white;border:1px solid #dce2eb;border-radius:14px;padding:20px;margin:16px 0}input[type=file]{max-width:100%;font-size:16px}label{display:block;font-weight:650;margin-bottom:10px}.summary{display:flex;flex-wrap:wrap;gap:22px;font-size:16px}.summary strong{display:block;font-size:20px;margin-top:3px}.muted{color:#627084}.tags{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.tag{padding:14px 16px;border:1px solid #d9e0e9;border-radius:9px;background:#f8fafc;font-size:20px;font-weight:650;overflow-wrap:anywhere}.tag{width:100%;text-align:left;cursor:pointer;color:#182334;font-family:inherit}.tag:focus-visible{outline:3px solid #2563eb;outline-offset:2px}.tag.found{background:#dce9df;color:#476451;border-color:#a8c3ae;text-decoration:line-through;opacity:.72}.message{margin-top:12px;color:#7d2634}.hidden{display:none}@media(max-width:500px){body{padding:12px}.panel{padding:15px}.tag{font-size:17px;padding:12px}}
+*{box-sizing:border-box}body{margin:0;padding:8px}.app{max-width:960px;margin:auto}
+.header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
+h1{font-size:22px;margin:0;line-height:1.15}.settings{font:inherit;font-size:13px;border:1px solid #cad3de;border-radius:7px;background:white;padding:5px 9px;color:#182334}
+.summary{display:flex;flex-wrap:wrap;align-items:center;gap:5px 14px;font-size:13px;margin:4px 0 8px}.summary b{font-size:14px}.muted{color:#526174}
+.tags{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;touch-action:pan-y}
+.tag{min-width:0;min-height:39px;padding:6px 2px;border:1px solid #d9e0e9;border-radius:6px;background:white;font:650 15px system-ui,-apple-system,"Segoe UI",sans-serif;text-align:center;color:#182334;overflow-wrap:anywhere;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer}
+.tag:focus-visible,.settings:focus-visible{outline:3px solid #2563eb;outline-offset:1px}.tag.found{background:#dce9df;color:#476451;border-color:#a8c3ae;text-decoration:line-through;opacity:.75}
+.import{background:white;border:1px solid #dce2eb;border-radius:9px;padding:10px;margin-bottom:8px}.import label{display:block;font-size:13px;margin-bottom:5px}.import input{max-width:100%;font-size:14px}.message{color:#98283c;font-size:13px;margin:4px 0}.hidden{display:none}
+@media(min-width:700px){.tag{min-height:43px;font-size:17px}.summary{font-size:14px}}
 </style>
 </head>
 <body><main class="app">
-<h1>Authorized Tags</h1>
-<p>Guest parking inspection — tag checklist</p>
-<section class="panel"><label for="file">Choose AuthorizedTags.csv</label><input id="file" type="file" accept=".csv,text/csv,text/plain"><div id="message" class="message" role="status"></div></section>
-<section id="result" class="hidden"><div class="panel summary"><div><span class="muted">Generated date</span><strong id="date"></strong></div><div><span class="muted">Generated time</span><strong id="time"></strong></div><div><span class="muted">Authorized tags</span><strong id="count"></strong></div><div><span class="muted">Found</span><strong id="found">0</strong></div></div><section class="panel"><p class="muted">Click a tag to mark it found. Click again to undo.</p><div id="tags" class="tags"></div></section></section>
+<div class="header"><h1>Authorized Tags</h1><button id="settings" class="settings" type="button" aria-expanded="false">Update List</button></div>
+<section id="import" class="import hidden"><label for="file">Select AuthorizedTags.csv</label><input id="file" type="file" accept=".csv,text/csv,text/plain"></section>
+<div id="message" class="message" role="status"></div>
+<section id="result" class="hidden"><div class="summary"><span><span class="muted">Updated:</span> <b id="date"></b> <b id="time"></b></span><span><span class="muted">Authorized:</span> <b id="count"></b></span><span><span class="muted">Found:</span> <b id="found">0</b></span></div><div id="tags" class="tags"></div></section>
 </main>
 <script>
 'use strict';
@@ -34,6 +42,9 @@ function parseCSV(source){
 }
 const fileInput=document.getElementById('file'),message=document.getElementById('message'),result=document.getElementById('result');
 const storageKey='wt500-authorized-tags-inspection-v1';
+const importPanel=document.getElementById('import'),settingsButton=document.getElementById('settings');
+function showImport(open){importPanel.classList.toggle('hidden',!open);settingsButton.setAttribute('aria-expanded',String(open));}
+settingsButton.addEventListener('click',()=>showImport(importPanel.classList.contains('hidden')));
 let current=null;
 function persist(){
  try{localStorage.setItem(storageKey,JSON.stringify(current));return true;}
@@ -51,7 +62,12 @@ function display(data){
   const button=document.createElement('button');button.type='button';button.className='tag';button.textContent=tag;
   function update(){button.classList.toggle('found',Boolean(data.found[index]));button.setAttribute('aria-pressed',String(Boolean(data.found[index])));}
   update();
-  button.addEventListener('click',()=>{data.found[index]=!data.found[index];update();updateCount();persist();});
+  let downX=0,downY=0,moved=false,suppressClick=false;
+  button.addEventListener('pointerdown',e=>{downX=e.clientX;downY=e.clientY;moved=false;suppressClick=false;});
+  button.addEventListener('pointermove',e=>{if(Math.hypot(e.clientX-downX,e.clientY-downY)>9)moved=true;});
+  button.addEventListener('pointerup',()=>{if(moved)suppressClick=true;});
+  button.addEventListener('pointercancel',()=>{suppressClick=true;});
+  button.addEventListener('click',()=>{if(suppressClick||moved){suppressClick=false;moved=false;return;}data.found[index]=!data.found[index];update();updateCount();persist();});
   list.append(button);
  });
  if(data.tags.length===0){const div=document.createElement('div');div.textContent='No authorized tags in this file.';list.append(div);}
@@ -63,6 +79,7 @@ try{
   if(data&&Array.isArray(data.tags)&&Array.isArray(data.found)&&data.tags.length===data.found.length)display(data);
  }
 }catch(err){message.textContent='Previously saved inspection data could not be restored.';}
+if(!current)showImport(true);
 
 fileInput.addEventListener('change',async()=>{
  message.textContent='';
@@ -78,6 +95,7 @@ fileInput.addEventListener('change',async()=>{
   const data={date:entries[0]?.[d]?.trim()||'',time:entries[0]?.[t]?.trim()||'',tags,found:tags.map(()=>false)};
   display(data);
   persist();
+  showImport(false);
  }catch(err){message.textContent=err.message||'Unable to read the CSV.';}
 });
 </script>
